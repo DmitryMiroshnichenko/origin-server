@@ -78,7 +78,7 @@ function start() {
   fi
 
   JENKINS_CMD="${JENKINS_CMD} ${JENKINS_OPTS} -DJENKINS_HOME=$OPENSHIFT_DATA_DIR \
-      -Dhudson.slaves.NodeProvisioner.recurrencePeriod=500 \
+      -Dhudson.slaves.NodeProvisioner.recurrencePeriod=60000 \
       -Dhudson.slaves.NodeProvisioner.initialDelay=100 \
       -Dhudson.slaves.NodeProvisioner.MARGIN=100 \
       -Dhudson.model.UpdateCenter.never=true \
