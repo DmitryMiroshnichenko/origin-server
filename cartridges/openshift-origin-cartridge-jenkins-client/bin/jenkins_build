@@ -123,103 +123,123 @@ def schedule_build
   end
 end
 
-unless job_available?
-  puts "ERROR - Job not available: http://#{@hostname}#{@job_url}"
-  exit 1
-end
+def raise_up_builder
+    unless job_available?
+      puts "ERROR - Job not available: http://#{@hostname}#{@job_url}"
+      exit 1
+    end
 
-# Save the current build num
-begin
-  build_num = get_build_num
-rescue => e
-  puts "Couldn't look up the last build number. Jenkins may be inaccessible."
-  puts "Error: #{e.message}"
-  exit 1
-end
-
-# Schedule a build
-begin
-  schedule_build
-rescue => e
-  puts "Couldn't schedule build. Jenkins may be inaccessible."
-  puts "Error: #{e.message}"
-  exit 2
-end
-
-# Wait until a new build is kicked off
-print "Waiting for build to schedule..."
-next_build_num = nil
-loop do
-  begin
-    next_build_num = get_build_num
-  rescue => e
-    puts "Couldn't find scheduled build. Jenkins may be inaccessible."
-    puts "Please note that the build may have been successfully scheduled."
-    puts "Error: #{e.message}"
-    exit 3
-  end
-
-  break if next_build_num == build_num + 1
-
-  print "."
-  begin
-    cancelled = is_cancelled
-  rescue => e
-    puts "Couldn't determine the build's status. Jenkins may be inaccessible."
-    puts "Please note that the build may have been successfully scheduled."
-    puts "Error: #{e.message}"
-    exit 4
-  end
-
-  if cancelled == nil
+    # Save the current build num
     begin
-      next_build_num = get_build_num
+      build_num = get_build_num
     rescue => e
-      puts "Couldn't find scheduled build. Jenkins may be inaccessible."
-      puts "Please note that the build may have been successfully scheduled."
+      puts "Couldn't look up the last build number. Jenkins may be inaccessible."
       puts "Error: #{e.message}"
-      exit 5
+      exit 1
     end
+    
+    # Schedule a build
+    begin
+      schedule_build
+    rescue => e
+      puts "Couldn't schedule build. Jenkins may be inaccessible."
+      puts "Error: #{e.message}"
+      exit 2
+    end
+    
+    # Wait until a new build is kicked off
+    print "Waiting for build to schedule..."
+    next_build_num = nil
+    loop do
+      begin
+        next_build_num = get_build_num
+      rescue => e
+        puts "Couldn't find scheduled build. Jenkins may be inaccessible."
+        puts "Please note that the build may have been successfully scheduled."
+        puts "Error: #{e.message}"
+        exit 3
+      end
 
-    if next_build_num == build_num + 1
-      break
+      break if next_build_num == build_num + 1
+
+      print "."
+      begin
+        cancelled = is_cancelled
+      rescue => e
+        puts "Couldn't determine the build's status. Jenkins may be inaccessible."
+        puts "Please note that the build may have been successfully scheduled."
+        puts "Error: #{e.message}"
+        exit 4
+      end
+
+      if cancelled == nil
+        begin
+          next_build_num = get_build_num
+        rescue => e
+          puts "Couldn't find scheduled build. Jenkins may be inaccessible."
+          puts "Please note that the build may have been successfully scheduled."
+          puts "Error: #{e.message}"
+          exit 5
+        end
+
+        if next_build_num == build_num + 1
+          break
+        else
+          puts "Build canceled. It's possible Jenkins node haven't started yet"
+          return false
+        end
+      end
+
+      sleep 1
+    end
+    puts "Done"
+    return true
+end
+
+def execute_build_job
+    # Block until a result shows up
+    print "Waiting for job to complete..."
+    next_build_num = get_build_num
+    job_json = nil
+    loop do
+      begin
+        job_json = get_job_info(next_build_num)
+      rescue => e
+        puts "Couldn't get job #{next_build_num} info. Jenkins may be inaccessible."
+        puts "Please note that the build may have finished."
+        puts "Error: #{e.message}"
+        exit 5
+      end
+
+      break if !job_json["building"]
+      
+      print "."
+      sleep 1
+    end
+    puts "Done"
+
+    # Check the build result
+    if job_json["result"] == "SUCCESS"
+      puts "SUCCESS"
+      exit 0
     else
-      puts ""
-      puts "**BUILD FAILED/CANCELLED**"
-      puts "Please see the Jenkins log for more details via 'rhc tail'"
-      exit 6
+      puts "FAILED"
+      exit 1
     end
-  end
-
-  sleep 1
 end
-puts "Done"
 
-# Block until a result shows up
-print "Waiting for job to complete..."
-job_json = nil
-loop do
-  begin
-    job_json = get_job_info(next_build_num)
-  rescue => e
-    puts "Couldn't get job #{next_build_num} info. Jenkins may be inaccessible."
-    puts "Please note that the build may have finished."
-    puts "Error: #{e.message}"
-    exit 5
-  end
-
-  break if !job_json["building"]
-  
-  print "."
-  sleep 1
+def execute_build
+    i = 0
+    builder_raised_up = false
+    while i < 2 && !builder_raised_up do
+        builder_raised_up = raise_up_builder
+        i = i + 1
+        if !builder_raised_up && i < 2
+            puts "Waiting 20 sec for Jenkins builder node to raise up"
+            sleep 20 # this constant can be changed
+        end
+    end
+    execute_build_job
 end
-puts "Done"
 
-# Check the build result
-if job_json["result"] == "SUCCESS"
-  puts "SUCCESS"
-  exit 0
-else
-  puts "FAILED"
-  exit 1
-end
+execute_build
